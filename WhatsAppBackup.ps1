@@ -949,51 +949,94 @@ function Get-RemoteMediaManifest {
 
     $remote = "$($Config.RemoteWhatsAppPath)/Media"
 
-    # Toybox find can emit file size and relative path directly.
-    # This avoids find -exec/stat and therefore avoids Android's
-    # command-line argument-size limit.
+    # Do not parse Unicode filenames directly from adb stdout under
+    # Windows PowerShell 5.1. Native stdout can be decoded using the
+    # console code page instead of UTF-8, corrupting filenames such as
+    # Š/Č/Ć/Ž characters.
     #
-    # %s = file size in bytes
-    # %P = path relative to the supplied Media directory
-    $command = "find '$remote' -type f -printf '%s|%P\n'"
+    # Instead:
+    #   1. Generate a UTF-8 manifest as a file on Android.
+    #   2. Pull that file byte-for-byte.
+    #   3. Read it explicitly as UTF-8 on Windows.
+    $remoteManifest = '/data/local/tmp/whatsapp-backup-media-manifest.tsv'
 
-    $lines = Invoke-AdbText `
-        -Arguments @('shell', $command)
+    $localManifest = Join-Path `
+        ([System.IO.Path]::GetTempPath()) `
+        ("whatsapp-media-manifest-{0}.tsv" -f [Guid]::NewGuid().ToString('N'))
 
-    $list = New-Object System.Collections.Generic.List[object]
+    try {
+        $command = "rm -f '$remoteManifest'; find '$remote' -type f -printf '%s|%P\n' > '$remoteManifest'"
 
-    foreach ($raw in $lines) {
-        $line = ([string]$raw).TrimEnd("`r")
+        Invoke-AdbText `
+            -Arguments @('shell', $command) |
+            Out-Null
 
-        $idx = $line.IndexOf('|')
+        Invoke-AdbInteractive `
+            -Arguments @(
+                'pull',
+                $remoteManifest,
+                $localManifest
+            )
 
-        if ($idx -lt 1) {
-            continue
+        if (-not (Test-Path -LiteralPath $localManifest)) {
+            throw 'ADB did not produce a local Media manifest.'
         }
 
-        $sizeText = $line.Substring(0, $idx)
-        $rel = $line.Substring($idx + 1)
+        $lines = Get-Content `
+            -LiteralPath $localManifest `
+            -Encoding UTF8
 
-        [Int64]$size = 0
+        $list = New-Object System.Collections.Generic.List[object]
 
-        if (-not [Int64]::TryParse($sizeText, [ref]$size)) {
-            continue
-        }
+        foreach ($raw in $lines) {
+            $line = ([string]$raw).TrimEnd("`r")
 
-        if (-not $rel) {
-            continue
-        }
+            $idx = $line.IndexOf('|')
 
-        $list.Add(
-            [pscustomobject]@{
-                Path       = $rel
-                Size       = $size
-                RemotePath = "$remote/$rel"
+            if ($idx -lt 1) {
+                continue
             }
-        )
-    }
 
-    return $list.ToArray()
+            $sizeText = $line.Substring(0, $idx)
+            $rel = $line.Substring($idx + 1)
+
+            [Int64]$size = 0
+
+            if (-not [Int64]::TryParse($sizeText, [ref]$size)) {
+                continue
+            }
+
+            if (-not $rel) {
+                continue
+            }
+
+            $list.Add(
+                [pscustomobject]@{
+                    Path       = $rel
+                    Size       = $size
+                    RemotePath = "$remote/$rel"
+                }
+            )
+        }
+
+        return $list.ToArray()
+    }
+    finally {
+        if (Test-Path -LiteralPath $localManifest) {
+            Remove-Item `
+                -LiteralPath $localManifest `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+
+        Invoke-AdbText `
+            -Arguments @(
+                'shell',
+                "rm -f '$remoteManifest'"
+            ) `
+            -AllowFailure |
+            Out-Null
+    }
 }
 
 function Get-LocalMediaMap {
