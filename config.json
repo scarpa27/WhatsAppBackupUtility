@@ -1,0 +1,12 @@
+{
+  "RootPath": ".",
+  "RecoveryPointsDirectory": "recovery-points",
+  "SharedMediaDirectory": "shared\\Media",
+  "LogsDirectory": "logs",
+  "ToolsDirectory": "tools",
+  "RemoteWhatsAppPath": "/sdcard/Android/media/com.whatsapp/WhatsApp",
+  "MaxBackupAgeHours": 12,
+  "SelectivePullMaxFiles": 500,
+  "KeepFallbackDatabaseChain": true,
+  "ProtectedRecoveryPointIds": []
+}
