@@ -949,8 +949,13 @@ function Get-RemoteMediaManifest {
 
     $remote = "$($Config.RemoteWhatsAppPath)/Media"
 
-    # Toybox find supports '{} +' batching, avoiding one stat process per file.
-    $command = "find '$remote' -type f -exec stat -c '%s|%n' {} +"
+    # Toybox find can emit file size and relative path directly.
+    # This avoids find -exec/stat and therefore avoids Android's
+    # command-line argument-size limit.
+    #
+    # %s = file size in bytes
+    # %P = path relative to the supplied Media directory
+    $command = "find '$remote' -type f -printf '%s|%P\n'"
 
     $lines = Invoke-AdbText `
         -Arguments @('shell', $command)
@@ -959,26 +964,21 @@ function Get-RemoteMediaManifest {
 
     foreach ($raw in $lines) {
         $line = ([string]$raw).TrimEnd("`r")
+
         $idx = $line.IndexOf('|')
 
         if ($idx -lt 1) {
             continue
         }
 
-        $sizeText = $line.Substring(0,$idx)
-        $full = $line.Substring($idx+1)
+        $sizeText = $line.Substring(0, $idx)
+        $rel = $line.Substring($idx + 1)
 
         [Int64]$size = 0
 
-        if (-not [Int64]::TryParse($sizeText,[ref]$size)) {
+        if (-not [Int64]::TryParse($sizeText, [ref]$size)) {
             continue
         }
-
-        if (-not $full.StartsWith($remote)) {
-            continue
-        }
-
-        $rel = $full.Substring($remote.Length).TrimStart('/')
 
         if (-not $rel) {
             continue
@@ -988,12 +988,12 @@ function Get-RemoteMediaManifest {
             [pscustomobject]@{
                 Path       = $rel
                 Size       = $size
-                RemotePath = $full
+                RemotePath = "$remote/$rel"
             }
         )
     }
 
-    return @($list)
+    return $list.ToArray()
 }
 
 function Get-LocalMediaMap {
