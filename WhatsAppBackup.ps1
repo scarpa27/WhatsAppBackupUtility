@@ -1871,18 +1871,33 @@ function Invoke-RestorePrep {
             "$remote/Databases/msgstore.db.crypt14"
         )
 
-    Write-Info 'Syncing shared Media to phone with adb push --sync...'
+    $manifestPath = Join-Path `
+        $point.FullName `
+        'media-manifest.tsv'
 
-    Invoke-AdbInteractive `
-        -Arguments @(
-            'push',
-            '--sync',
-            $Config.SharedMediaPath,
-            "$remote/"
-        )
+    if (Test-Path -LiteralPath $manifestPath) {
+        Write-Info 'Comparing destination Media with the recovery-point manifest...'
 
-    Repair-DestinationMediaFromManifest `
-        -Point $point
+        # Smart restore:
+        # compare path + size and transfer only files that are
+        # missing or different on the destination phone.
+        #
+        # This also ensures that archival-only files in shared\Media
+        # are not unnecessarily copied to this recovery point.
+        Repair-DestinationMediaFromManifest `
+            -Point $point
+    }
+    else {
+        Write-Warn 'No point-in-time Media manifest exists; falling back to adb push --sync.'
+
+        Invoke-AdbInteractive `
+            -Arguments @(
+                'push',
+                '--sync',
+                $Config.SharedMediaPath,
+                "$remote/"
+            )
+    }
 
     $remoteDb = Get-RemoteDatabaseInfo
     $localDb = Get-Item -LiteralPath $db
