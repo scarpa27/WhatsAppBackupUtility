@@ -385,7 +385,7 @@ function Show-DeviceAndBackupStatus {
 function Get-RecoveryPointDirectories {
     Ensure-Directory $Config.RecoveryPointsPath
 
-    return @(
+    return ,@(
         Get-ChildItem `
             -LiteralPath $Config.RecoveryPointsPath `
             -Directory `
